@@ -1,0 +1,51 @@
+services:
+    backend:
+        image: sonbui17/backend:latest
+        container_name: backend
+        restart: unless-stopped
+        ports:
+            - "8081:8081"
+        environment:
+            DB_URL: "jdbc:mysql://mysql:3306/campus_hub?createDatabaseIfNotExist=true"
+            DB_USERNAME: root
+            DB_PASSWORD: "123456"
+        depends_on:
+            mysql:
+                condition: service_healthy
+
+    frontend:
+        image: sonbui17/frontend:latest
+        container_name: frontend
+        restart: unless-stopped
+        ports:
+            - "80:80"
+        depends_on:
+            - backend
+
+    mysql:
+        image: mysql:8.0
+        container_name: db
+        restart: unless-stopped
+        environment:
+            MYSQL_DATABASE: campus_hub
+            MYSQL_ROOT_PASSWORD: "123456"
+        volumes:
+            - campus_hub_data:/var/lib/mysql
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "mysqladmin",
+                    "ping",
+                    "-h",
+                    "localhost",
+                    "-uroot",
+                    "-p123456",
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
+
+volumes:
+    campus_hub_data:

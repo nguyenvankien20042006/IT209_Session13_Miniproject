@@ -1,0 +1,121 @@
+name: CI/CD Student Management
+# Chạy workflow khi push code lên nhánh main
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    build:
+        name: Test và Build ứng dụng
+        runs-on: ubuntu-latest
+
+        steps:
+            # 1. Lấy source code
+            - name: Checkout source code
+              uses: actions/checkout@v4
+
+            # 2. Thiết lập Java cho Spring Boot
+            - name: Thiết lập môi trường Java
+              uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: "21"
+                  cache: gradle
+                  cache-dependency-path: backend/**/*.gradle*
+
+            # 3. Cấp quyền thực thi Gradle Wrapper
+            - name: Cấp quyền thực thi gradlew
+              working-directory: backend
+              run: chmod +x gradlew
+
+            # 4. Kiểm thử backend
+            - name: Test Spring Boot
+              working-directory: backend
+              run: ./gradlew test
+
+            # 5. Build backend
+            - name: Build Spring Boot
+              working-directory: backend
+              run: ./gradlew bootJar
+
+            # 6. Thiết lập Node.js cho React
+            - name: Thiết lập môi trường Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  cache: npm
+                  cache-dependency-path: frontend/package-lock.json
+
+            # 7. Cài đặt dependencies frontend
+            - name: Cài đặt dependencies React
+              working-directory: frontend
+              run: npm ci
+
+            # 8. Build frontend
+            - name: Build React
+              working-directory: frontend
+              run: npm run build
+
+            # 9. Đăng nhập Docker Hub
+            - name: Đăng nhập Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            # 10. Build và push Backend image
+            - name: Build và push Backend image
+              uses: docker/build-push-action@v6
+              with:
+                  context: ./backend
+                  push: true
+                  tags: ${{ secrets.DOCKERHUB_USERNAME }}/backend:latest
+
+            # 11. Build và push Frontend image
+            - name: Build và push Frontend image
+              uses: docker/build-push-action@v6
+              with:
+                  context: ./frontend
+                  push: true
+                  tags: ${{ secrets.DOCKERHUB_USERNAME }}/frontend:latest
+
+    deploy:
+        name: Deploy lên VPS
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            # 12. SSH vào VPS và triển khai
+            - name: Triển khai ứng dụng tới VPS
+              uses: appleboy/ssh-action@v1.2.5
+              with:
+                  host: ${{ secrets.VPS_HOST }}
+                  username: ${{ secrets.VPS_USERNAME }}
+                  key: ${{ secrets.VPS_PRIVATE_KEY }}
+                  script: |
+                      set -e
+
+                      # Tạo thư mục triển khai
+                      mkdir -p ~/mini-project2
+                      cd ~/mini-project2
+
+                      # Clone repository lần đầu hoặc cập nhật source
+                      if [ ! -d ".git" ]; then
+                        git clone https://github.com/buithaison17/it209-session13-miniproject2.git .
+                      else
+                        git fetch origin main
+                        git reset --hard origin/main
+                      fi
+
+                      # Tạo biến môi trường Docker Hub
+                      export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+
+                      # Kéo image mới nhất
+                      docker compose pull backend frontend
+
+                      # Khởi động lại ứng dụng
+                      docker compose up -d --no-build --remove-orphans
+
+                      # Kiểm tra trạng thái container
+                      docker compose ps
